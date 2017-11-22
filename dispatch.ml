@@ -1,6 +1,6 @@
 open Lwt
 open Printf
-open V1_LWT
+(* open V1_LWT *)
 
 let pb = Printf.bprintf
 
@@ -31,7 +31,7 @@ module Index = struct
        </div>" boot ago
 
   let manifest () =
-    let open Opam_manifest in
+    let open OpamPackage in
     let buf = Buffer.create 1024 in
     pb buf "<div class=\"large-4 columns\">\n\
             <h3>Build Manifest<br/><small>%d packages</small></h3>\n\
@@ -95,7 +95,7 @@ let split_path uri =
   Re_str.(split_delim (regexp_string "/") path)
   |> List.filter (fun e -> e <> "")
 
-module Main (C:CONSOLE) (KV: KV_RO) (S:Cohttp_lwt.Server) (Clock : V1.CLOCK) =
+module Main (C:Mirage_console.S) (KV: KV_RO) (S:Cohttp_lwt.Server) (Clock : V1.CLOCK) =
 struct
 
   let finish_boot_ts = ref 0.0
@@ -156,7 +156,7 @@ struct
       | Some s -> S.respond_string ~headers ~status:`OK ~body:s ()
 
   let start c kv http clock =
-    C.log_s c "Starting ....\n" >>= fun () ->
+    C.log c "Starting ....\n" >>= fun () ->
     im_ready () >>= fun () ->
 
     (* HTTP callback *)
