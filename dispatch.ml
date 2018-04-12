@@ -20,30 +20,29 @@ module Index = struct
     \  $(document).foundation();\n\
      </script>"
 
-  let time ~boot ~ago =
-    Printf.sprintf
-      "<div class=\"row\">\n\
-      \  <div class=\"large-12 columns\">\n\
-      \     <div class=\"panel\">\n\
-      \       Unikernel booted in %f seconds, %f seconds ago\n\
-      \    </div>\n\
-      \  </div>\n\
-       </div>" boot ago
-
   let manifest () =
-    let open OpamPackage in
     let buf = Buffer.create 1024 in
-    pb buf "<div class=\"large-4 columns\">\n\
+    let opam_r = OpamRepositoryBackend.default () in
+    pb
+      buf
+      "<div class=\"large-4 columns\">\n\
             <h3>Build Manifest<br/><small>%d packages</small></h3>\n\
             <table>\n\
             <thead><tr><th>Name</th><th>Version</th></tr></thead>"
-      (List.length Opam_manifest.all);
-    List.iter (fun pkg ->
-        match pkg.archive with
-        | "" -> pb buf "<tr><td>%s</td><td>%s</td></tr>\n" pkg.name pkg.version
-        | a  -> pb buf "<tr><td>%s</td><td><a href=%S>%s</a></td></tr>\n"
-                  pkg.name a pkg.version
-      ) Opam_manifest.all;
+      (OpamPackage.Set.length (OpamRepository.packages opam_r))
+    ;
+    OpamPackage.Set.iter
+      (fun pkg ->
+        let name = (OpamPackage.name_to_string pkg) in
+        let version = (OpamPackage.version_to_string pkg) in
+        pb
+          buf
+          "<tr><td>%s</td><td>%s</td></tr>\n"
+          name
+          version
+      )
+      (OpamRepository.packages opam_r)
+    ;
     pb buf "</table>\n\
             </div>";
     Buffer.contents buf
@@ -66,7 +65,7 @@ module Index = struct
       (k t.heap_words)
       (k t.live_words)
 
-  let create ~boot ~ago =
+  let create () =
     Printf.sprintf
       "<!doctype html>\n\
        <html class=\"no-js\ lang=\"en\">\n\
@@ -75,17 +74,16 @@ module Index = struct
        </head>\n\
        <body>\n\
        <div class=\"row\">
-       <h1>Hello World from Jitsu!</h1>\
+       <h1>Hello World!</h1>\
        </div>
        <div class=\"row\">\n\
-       %s\n\
        %s\n\
        %s\n\
        </div>\n\
        %s\n\
        </body>\n\
        </html>"
-      header (time ~boot ~ago) (gc ()) (manifest ()) footer
+      header (gc ()) (manifest ()) footer
 
 end
 
@@ -95,15 +93,10 @@ let split_path uri =
   Re_str.(split_delim (regexp_string "/") path)
   |> List.filter (fun e -> e <> "")
 
-module Main (C:Mirage_console.S) (KV: KV_RO) (S:Cohttp_lwt.Server) (Clock : V1.CLOCK) =
+module Main (KV: Mirage_kv_lwt.RO) (S: Cohttp_lwt.S.Server) =
 struct
 
-  let finish_boot_ts = ref 0.0
-
-  let () =
-    finish_boot_ts := (Clock.time ());
-    Printf.printf "Current time is %f\n%!" (!finish_boot_ts)
-
+(*
   (* get start time from xen *)
   let start_time () =
     OS.Xs.make () >>= fun client ->
@@ -120,30 +113,30 @@ struct
     assert ((String.length d_str) == 2);
     (float_of_int v) +. ((float_of_int d) /. 100.0)
     (* end of HACK *)
+*)
 
   (* write key in xenstore to let jitsu know we are ready *)
+(*
   let im_ready c =
     let key = "data/status" and value = "ready" in
     OS.Xs.make () >>= fun xs ->
     OS.Xs.(immediate xs (fun h -> write h key value))
+*)
 
   let read_static kv name =
-    KV.size kv name >>= function
-    | `Error (KV.Unknown_key _) -> Lwt.return_none
-    | `Ok size ->
-      KV.read kv name 0 (Int64.to_int size) >>= function
-      | `Error (KV.Unknown_key _) -> Lwt.return_none
-      | `Ok bufs -> Lwt.return (Some ((Cstruct.copyv bufs)))
+    let open KV in
+    size kv name >>= function
+    | Error (`Unknown_key _) -> Lwt.return_none
+    | Ok size ->
+      read kv name (Int64.of_int 0) size >>= function
+      | Error (`Unknown_key _) -> Lwt.return_none
+      | Ok bufs -> Lwt.return (Some ((Cstruct.copyv bufs)))
 
   (* dispatch non-file URLs *)
   let rec dispatcher kv = function
     | [] -> dispatcher kv ["index.html"]
     | ["index.html"] ->
-      let on_time = Clock.time ()  in
-      start_time () >>= fun st ->
-      let boot = !finish_boot_ts -. st in
-      let ago  = on_time -. st in
-      let body = Index.create ~boot ~ago in
+      let body = Index.create () in
       S.respond_string ~status:`OK ~body ()
     | path ->
       let path = String.concat "/" path in
@@ -155,18 +148,16 @@ struct
       | None   -> S.respond_not_found ()
       | Some s -> S.respond_string ~headers ~status:`OK ~body:s ()
 
-  let start c kv http clock =
-    C.log c "Starting ....\n" >>= fun () ->
-    im_ready () >>= fun () ->
-
+  let start kv http =
+    Logs.info "Starting ....\n";
     (* HTTP callback *)
     let callback conn_id request body =
-      let uri = Cohttp.Request.uri request in
+      let uri = Cohttp_lwt.Request.uri request in
       dispatcher kv (split_path uri)
     in
     let conn_closed (_,conn_id) =
       let cid = Cohttp.Connection.to_string conn_id in
-      C.log c (Printf.sprintf "conn %s closed" cid)
+      Logs.info (Printf.sprintf "conn %s closed" cid)
     in
     let mode = `TCP 80 in
     http mode (S.make ~conn_closed ~callback ())

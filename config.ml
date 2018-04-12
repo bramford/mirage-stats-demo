@@ -32,13 +32,13 @@ let data = crunch "static"
 
 let main =
   let packages = [
-    package "str"; package "magic-mime"; package "re.str"
+    package "str"; package "magic-mime"; package "re.str"; package "opam-lib.repository"; package "mirage-kv"
   ] in
   foreign
     ~packages
-    "Dispatch.Main" (console @-> kv_ro @-> http @-> pclock @-> job)
+    "Dispatch.Main" (kv_ro @-> http @-> job)
 
 let () =
   register "www" [
-    main $ default_console $ data $ http_srv $ default_posix_clock
+    main $ default_console $ data $ http_srv
   ]
