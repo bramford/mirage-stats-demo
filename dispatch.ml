@@ -149,7 +149,7 @@ struct
       | Some s -> S.respond_string ~headers ~status:`OK ~body:s ()
 
   let start kv http =
-    Logs.info "Starting ....\n";
+    Logs.info "Starting ....\n" >>= fun () ->
     (* HTTP callback *)
     let callback conn_id request body =
       let uri = Cohttp_lwt.Request.uri request in
